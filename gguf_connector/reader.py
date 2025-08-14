@@ -4,7 +4,7 @@ from collections import OrderedDict
 from typing import Any, Literal, NamedTuple, TypeVar, Union
 import numpy as np
 import numpy.typing as npt
-from .quant import quant_shape_to_byte_shape
+from .quant5 import quant_shape_to_byte_shape
 if __name__ == '__main__':
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -154,7 +154,7 @@ class GGUFReader:
                 data_idxs += (idx + idxs_offs for idx in curr_idxs)
                 offs += curr_size
             return offs - orig_offs, aparts, data_idxs, types
-        raise ValueError('Unknown/unhandled field type {gtype}')
+        raise ValueError(f'Unknown/unhandled field type {gtype}')
     def _get_tensor_info_field(self, orig_offs):
         offs = orig_offs
         name_len, name_data = self._get_str(offs)
