@@ -385,6 +385,58 @@ def llama_permute(raw_sd, n_head, n_head_kv):
             v.data = permute(v.data, n_head_kv)
         sd[k] = v
     return sd
+def load_gguf_mmproj(path):
+    logging.info("Attempting to get mmproj file for text encoder...")
+    tenc_fname = os.path.basename(path)
+    tenc = os.path.splitext(tenc_fname)[0].lower()
+    for q in [x.name for x in GGMLQuantizationType]:
+        if q.lower() in tenc:
+            tenc = tenc.rsplit(q.lower(), 1)[0]
+            break
+    tenc = tenc[:-1]
+    target = []
+    root = os.path.dirname(path)
+    for fname in os.listdir(root):
+        name, ext = os.path.splitext(fname)
+        if ext.lower() != ".gguf":
+            continue
+        if "mmproj" not in name.lower():
+            continue
+        if tenc in name.lower():
+            target.append(fname)
+    if len(target) == 0:
+        logging.error(f"Error: Can't find mmproj file for '{tenc_fname}'! Qwen-Image-Edit will be broken!")
+        return {}
+    if len(target) > 1:
+        logging.error(f"Ambiguous mmproj for text encoder '{tenc_fname}', will use first match.")
+    logging.info(f"Using mmproj '{target[0]}' for text encoder '{tenc_fname}'.")
+    target = os.path.join(root, target[0])
+    vsd = load_gguf_sd(target)
+    if "v.patch_embd.weight.1" in vsd:
+        w1 = dequantize_tensor(vsd.pop("v.patch_embd.weight"), dtype=torch.float32)
+        w2 = dequantize_tensor(vsd.pop("v.patch_embd.weight.1"), dtype=torch.float32)
+        vsd["v.patch_embd.weight"] = torch.stack([w1, w2], dim=2)
+    vsd = tensor_swap(vsd, arrays['V7'])
+    if "visual.blocks.0.attn_q.weight" in vsd:
+        attns = {}
+        for k,v in vsd.items():
+            if any(x in k for x in ["attn_q", "attn_k", "attn_v"]):
+                k_attn, k_name = k.rsplit(".attn_", 1)
+                k_attn += ".attn.qkv." + k_name.split(".")[-1]
+                if k_attn not in attns:
+                    attns[k_attn] = {}
+                attns[k_attn][k_name] = dequantize_tensor(
+                    v, dtype=(torch.bfloat16 if is_quantized(v) else torch.float16)
+                )
+        for k,v in attns.items():
+            suffix = k.split(".")[-1]
+            vsd[k] = torch.cat([
+                v[f"q.{suffix}"],
+                v[f"k.{suffix}"],
+                v[f"v.{suffix}"],
+            ], dim=0)
+        del attns
+    return vsd
 def load_gguf_clip(path):
     sd, arch = load_gguf_sd(path, return_arch=True)
     if arch in {'t5', 't5encoder'}:
@@ -400,6 +452,9 @@ def load_gguf_clip(path):
         sd = tensor_swap(sd, arrays['L3'])
         if arch == "llama":
             sd = llama_permute(sd, 32, 8)
+        if arch == "qwen2vl":
+            vsd = load_gguf_mmproj(path)
+            sd.update(vsd)
     elif arch in {'gemma2'}:
         sd["spiece_model"] = tokenizer_builder(path)
         sd = tensor_swap(sd, arrays['G2'])
@@ -821,9 +876,7 @@ class TENSORBoost:
     def boost(self, select_safetensors):
         input_file = folder_paths.get_full_path('select_safetensors',
             select_safetensors)
-        output_file = (
-            f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}_fp32.safetensors'
-            )
+        output_file = (f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}_fp32.safetensors')
         data = load_file(input_file)
         quantized_data = {}
         print('Starting quantization process...')
@@ -861,9 +914,7 @@ def convert_gguf_to_safetensors(gguf_path, output_path, use_bf16):
                     float16)
             weights_hf = weights_tensor
         except Exception as e:
-            print(
-                f"Error during BF16 conversion for tensor '{tensor_name}': {e}"
-                )
+            print(f"Error during BF16 conversion for tensor '{tensor_name}': {e}")
             weights_tensor = torch.from_numpy(weights.astype(numpy.float32)
                 ).to(torch.float16)
             weights_hf = weights_tensor
