@@ -308,9 +308,7 @@ def get_orig_shape(reader, tensor_name):
     if len(field.types) != 2 or field.types[0
         ] != gr.GGUFValueType.ARRAY or field.types[1
         ] != gr.GGUFValueType.INT32:
-        raise TypeError(
-            f'Bad original shape metadata for {field_key}: Expected ARRAY of INT32, got {field.types}'
-            )
+        raise TypeError(f'Bad original shape metadata for {field_key}: Expected ARRAY of INT32, got {field.types}')
     return torch.Size(tuple(int(field.parts[part_idx][0]) for part_idx in
         field.data))
 def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
@@ -430,11 +428,7 @@ def load_gguf_mmproj(path):
                 )
         for k,v in attns.items():
             suffix = k.split(".")[-1]
-            vsd[k] = torch.cat([
-                v[f"q.{suffix}"],
-                v[f"k.{suffix}"],
-                v[f"v.{suffix}"],
-            ], dim=0)
+            vsd[k] = torch.cat([v[f"q.{suffix}"],v[f"k.{suffix}"],v[f"v.{suffix}"]], dim=0)
         del attns
     return vsd
 def load_gguf_clip(path):
