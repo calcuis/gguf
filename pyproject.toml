@@ -4,7 +4,7 @@ description = "gguf node for comfyui"
 authors = [{name = "calcuis", email = "info@calcu.io"}]
 license = {file = "LICENSE"}
 readme = "README.md"
-version = "2.3.9"
+version = "2.4.0"
 
 [project.urls]
 Repository = "https://github.com/calcuis/gguf"
