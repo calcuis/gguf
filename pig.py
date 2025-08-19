@@ -405,7 +405,7 @@ def load_gguf_mmproj(path):
         if tenc in name.lower():
             target.append(fname)
     if len(target) == 0:
-        logging.error(f"Error: Can't find mmproj file for '{tenc_fname}'! Qwen-Image-Edit will be broken!")
+        logging.error(f"Cannot find mmproj file for '{tenc_fname}', will terminate the process.")
         return {}
     if len(target) > 1:
         logging.error(f"Ambiguous mmproj for text encoder '{tenc_fname}', will use first match.")
