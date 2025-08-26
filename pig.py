@@ -13,6 +13,7 @@ from .gguf_connector.const import GGML_QUANT_VERSION, LlamaFileType
 from .gguf_connector.quant import quantize, dequantize, QuantError
 from .gguf_connector.quant5a import dequantize_tensor, is_quantized, is_torch_compatible
 from .gguf_connector.tkn import get_field, tokenizer_builder
+from .gguf_connector.mmj import find_mmproj_pair
 pig = os.path.join(os.path.dirname(__file__), 'version.json')
 with open(pig, 'r') as file:
     data = json.load(file)
@@ -47,8 +48,7 @@ class GGUFModelPatcher(comfy.model_patcher.ModelPatcher):
             else:
                 temp_weight = weight.to(torch.float32, copy=True)
             out_weight = calculate_weight(patches, temp_weight, key)
-            out_weight = comfy.float.stochastic_rounding(out_weight, weight
-                .dtype)
+            out_weight = comfy.float.stochastic_rounding(out_weight, weight.dtype)
         if inplace_update:
             comfy.utils.copy_to_param(self.model, key, out_weight)
         else:
@@ -61,8 +61,7 @@ class GGUFModelPatcher(comfy.model_patcher.ModelPatcher):
                 patches = getattr(p, 'patches', [])
                 if len(patches) > 0:
                     p.patches = []
-        return super().unpatch_model(device_to=device_to, unpatch_weights=
-            unpatch_weights)
+        return super().unpatch_model(device_to=device_to, unpatch_weights=unpatch_weights)
     mmap_released = False
     def load(self, *args, force_patch_weights=False, **kwargs):
         super().load(*args, force_patch_weights=True, **kwargs)
@@ -384,31 +383,7 @@ def llama_permute(raw_sd, n_head, n_head_kv):
         sd[k] = v
     return sd
 def load_gguf_mmproj(path):
-    logging.info("Attempting to get mmproj file for text encoder...")
-    tenc_fname = os.path.basename(path)
-    tenc = os.path.splitext(tenc_fname)[0].lower()
-    for q in [x.name for x in GGMLQuantizationType]:
-        if q.lower() in tenc:
-            tenc = tenc.rsplit(q.lower(), 1)[0]
-            break
-    tenc = tenc[:-1]
-    target = []
-    root = os.path.dirname(path)
-    for fname in os.listdir(root):
-        name, ext = os.path.splitext(fname)
-        if ext.lower() != ".gguf":
-            continue
-        if "mmproj" not in name.lower():
-            continue
-        if tenc in name.lower():
-            target.append(fname)
-    if len(target) == 0:
-        logging.error(f"Cannot find mmproj file for '{tenc_fname}', will terminate the process.")
-        return {}
-    if len(target) > 1:
-        logging.error(f"Ambiguous mmproj for text encoder '{tenc_fname}', will use first match.")
-    logging.info(f"Using mmproj '{target[0]}' for text encoder '{tenc_fname}'.")
-    target = os.path.join(root, target[0])
+    target = find_mmproj_pair(path)
     vsd = load_gguf_sd(target)
     if "v.patch_embd.weight.1" in vsd:
         w1 = dequantize_tensor(vsd.pop("v.patch_embd.weight"), dtype=torch.float32)
@@ -796,9 +771,7 @@ class GGUFRun:
                 )
             writer.add_file_type(LlamaFileType.MOSTLY_BF16)
         else:
-            output_path = (
-                f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-f16.gguf'
-                )
+            output_path = (f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-f16.gguf')
             writer.add_file_type(LlamaFileType.MOSTLY_F16)
         if os.path.isfile(output_path):
             input('Output exists enter to continue or ctrl+c to abort!')
@@ -835,16 +808,12 @@ class TENSORCut:
         files += folder_paths.get_filename_list('select_safetensors')
         return sorted(files)
     def cut(self, select_safetensors):
-        input_file = folder_paths.get_full_path('select_safetensors',
-            select_safetensors)
-        output_file = (
-            f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}_fp8_e4m3fn.safetensors'
-            )
+        input_file = folder_paths.get_full_path('select_safetensors', select_safetensors)
+        output_file = (f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}_fp8_e4m3fn.safetensors')
         data = load_file(input_file)
         quantized_data = {}
         print('Starting quantization process...')
-        for key, tensor in loading(data.items(), desc='Quantizing tensors',
-            unit='tensor'):
+        for key, tensor in loading(data.items(), desc='Quantizing tensors', unit='tensor'):
             tensor = tensor.to(dtype=torch.bfloat16, device='cuda')
             quantized_tensor = quantize_to_fp8(tensor)
             quantized_data[key] = quantized_tensor.cpu()
@@ -900,17 +869,14 @@ def convert_gguf_to_safetensors(gguf_path, output_path, use_bf16):
         weights = dequantize(tensor_data.data, tensor_data.tensor_type).copy()
         try:
             if use_bf16:
-                weights_tensor = torch.from_numpy(weights).to(dtype=torch.
-                    float32)
+                weights_tensor = torch.from_numpy(weights).to(dtype=torch.float32)
                 weights_tensor = weights_tensor.to(torch.bfloat16)
             else:
-                weights_tensor = torch.from_numpy(weights).to(dtype=torch.
-                    float16)
+                weights_tensor = torch.from_numpy(weights).to(dtype=torch.float16)
             weights_hf = weights_tensor
         except Exception as e:
             print(f"Error during BF16 conversion for tensor '{tensor_name}': {e}")
-            weights_tensor = torch.from_numpy(weights.astype(numpy.float32)
-                ).to(torch.float16)
+            weights_tensor = torch.from_numpy(weights.astype(numpy.float32)).to(torch.float16)
             weights_hf = weights_tensor
         tensors_dict[tensor_name] = weights_hf
     metadata = {key: str(reader.get_field(key)) for key in reader.fields}
