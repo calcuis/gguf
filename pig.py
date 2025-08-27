@@ -382,30 +382,33 @@ def llama_permute(raw_sd, n_head, n_head_kv):
             v.data = permute(v.data, n_head_kv)
         sd[k] = v
     return sd
+def handle_visual_tensor(path):
+    vsd = load_gguf_sd(path)
+    if "v.patch_embd.weight.1" in vsd:
+        w1 = dequantize_tensor(vsd.pop("v.patch_embd.weight"), dtype=torch.float32)
+        w2 = dequantize_tensor(vsd.pop("v.patch_embd.weight.1"), dtype=torch.float32)
+        vsd["v.patch_embd.weight"] = torch.stack([w1, w2], dim=2)
+    vsd = tensor_swap(vsd, arrays['V7'])
+    if "visual.blocks.0.attn_q.weight" in vsd:
+        attns = {}
+        for k,v in vsd.items():
+            if any(x in k for x in ["attn_q", "attn_k", "attn_v"]):
+                k_attn, k_name = k.rsplit(".attn_", 1)
+                k_attn += ".attn.qkv." + k_name.split(".")[-1]
+                if k_attn not in attns:
+                    attns[k_attn] = {}
+                attns[k_attn][k_name] = dequantize_tensor(v, dtype=(torch.bfloat16 if is_quantized(v) else torch.float16))
+        for k,v in attns.items():
+            suffix = k.split(".")[-1]
+            vsd[k] = torch.cat([v[f"q.{suffix}"],v[f"k.{suffix}"],v[f"v.{suffix}"]], dim=0)
+        del attns
+    return vsd
 def load_gguf_mmproj(path):
     target = find_mmproj_pair(path)
     if not target:
         vsd = {}
     else:
-        vsd = load_gguf_sd(target)
-        if "v.patch_embd.weight.1" in vsd:
-            w1 = dequantize_tensor(vsd.pop("v.patch_embd.weight"), dtype=torch.float32)
-            w2 = dequantize_tensor(vsd.pop("v.patch_embd.weight.1"), dtype=torch.float32)
-            vsd["v.patch_embd.weight"] = torch.stack([w1, w2], dim=2)
-        vsd = tensor_swap(vsd, arrays['V7'])
-        if "visual.blocks.0.attn_q.weight" in vsd:
-            attns = {}
-            for k,v in vsd.items():
-                if any(x in k for x in ["attn_q", "attn_k", "attn_v"]):
-                    k_attn, k_name = k.rsplit(".attn_", 1)
-                    k_attn += ".attn.qkv." + k_name.split(".")[-1]
-                    if k_attn not in attns:
-                        attns[k_attn] = {}
-                    attns[k_attn][k_name] = dequantize_tensor(v, dtype=(torch.bfloat16 if is_quantized(v) else torch.float16))
-            for k,v in attns.items():
-                suffix = k.split(".")[-1]
-                vsd[k] = torch.cat([v[f"q.{suffix}"],v[f"k.{suffix}"],v[f"v.{suffix}"]], dim=0)
-            del attns
+        vsd = handle_visual_tensor(target)
     return vsd
 def load_gguf_clip(path):
     sd, arch = load_gguf_sd(path, return_arch=True)
@@ -418,12 +421,15 @@ def load_gguf_clip(path):
             sd = tensor_swap(sd, arrays['B5'])
         else:
             sd = tensor_swap(sd, arrays['T5'])
-    elif arch in {'llama', "qwen2vl"}:
+    elif arch in {'llama', "qwen2vl", "pig1g"}:
         sd = tensor_swap(sd, arrays['L3'])
         if arch == "llama":
             sd = llama_permute(sd, 32, 8)
         if arch == "qwen2vl":
             vsd = load_gguf_mmproj(path)
+            sd.update(vsd)
+        if arch == "pig1g":
+            vsd = handle_visual_tensor(path)
             sd.update(vsd)
     elif arch in {'gemma2'}:
         sd["spiece_model"] = tokenizer_builder(path)
