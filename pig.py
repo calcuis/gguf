@@ -3,6 +3,7 @@ import comfy.ops
 import comfy.utils
 import comfy.model_patcher
 import comfy.model_management
+import comfy.audio_encoders.audio_encoders
 import torch, numpy, os, json, logging, collections, nodes, folder_paths
 from safetensors.torch import load_file, save_file
 from typing import Dict, Tuple
@@ -298,6 +299,7 @@ def get_folder_names_and_paths(key, targets=[]):
             f'Unknown file list already present on key {key}: {base}')
 get_folder_names_and_paths('model_gguf', ['diffusion_models', 'unet'])
 get_folder_names_and_paths('clip_gguf', ['text_encoders', 'clip'])
+get_folder_names_and_paths('encoder_gguf', ['audio_encoders'])
 get_folder_names_and_paths('vae_gguf', ['vae'])
 def get_orig_shape(reader, tensor_name):
     field_key = f'comfy.gguf.orig_shape.{tensor_name}'
@@ -1001,12 +1003,38 @@ class VaeGGUF:
             sd = comfy.utils.load_torch_file(vae_path)
         vae = comfy.sd.VAE(sd=sd)
         return vae,
+class AudioEncoderLoaderGGUF:
+    @staticmethod
+    def get_encoder_list():
+        encoders = []
+        encoders += folder_paths.get_filename_list('audio_encoders')
+        encoders += folder_paths.get_filename_list('encoder_gguf')
+        return sorted(encoders)
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "audio_encoder_name": (s.get_encoder_list(), ),}}
+    RETURN_TYPES = ("AUDIO_ENCODER",)
+    FUNCTION = "load_model"
+    CATEGORY = 'gguf'
+    TITLE = 'GGUF AudioEncoder Loader'
+    def load_model(self, audio_encoder_name):
+        if audio_encoder_name.endswith('.gguf'):
+            encoder_path = folder_paths.get_full_path_or_raise('encoder_gguf', audio_encoder_name)
+            sd = load_gguf_clip(encoder_path)
+        else:
+            audio_encoder_name = folder_paths.get_full_path_or_raise("audio_encoders", audio_encoder_name)
+            sd = comfy.utils.load_torch_file(audio_encoder_name, safe_load=True)
+        audio_encoder = comfy.audio_encoders.audio_encoders.load_audio_encoder_from_sd(sd)
+        if audio_encoder is None:
+            raise RuntimeError("ERROR: audio encoder file is invalid and does not contain a valid model.")
+        return audio_encoder,
 NODE_CLASS_MAPPINGS = {
     "LoaderGGUF": LoaderGGUF,
     "ClipLoaderGGUF": ClipLoaderGGUF,
     "DualClipLoaderGGUF": DualClipLoaderGGUF,
     "TripleClipLoaderGGUF": TripleClipLoaderGGUF,
     "QuadrupleClipLoaderGGUF": QuadrupleClipLoaderGGUF,
+    "AudioEncoderLoaderGGUF": AudioEncoderLoaderGGUF,
     "LoaderGGUFAdvanced": LoaderGGUFAdvanced,
     "VaeGGUF": VaeGGUF,
     "GGUFUndo": GGUFUndo,
