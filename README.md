@@ -107,6 +107,10 @@ for the demo workflow (picture) above, you could get the test model gguf [here](
 - convert your safetensors vae to gguf vae using convertor zero; then try it out!
 - gguf vae loader supports both gguf and safetensors which means you don't need to switch loader anymore
 
+### GGUF AudioEncoder Loader🔈🐷
+- wow! speechless! convert your safetensors audio encoder to gguf encoder using convertor zero; then try it out!
+- gguf audio encoder loader supports both gguf and safetensors (same as gguf vae loader) which means you don't need to switch loader anymore; awesome!
+
 #### 📄 bug report (solved)
 - please upgrade your node to the latest version for resolving the pypi gguf pack blockout issue if you have node(s) depending on gguf pack to work
 
