@@ -423,14 +423,14 @@ def load_gguf_clip(path):
             sd = tensor_swap(sd, arrays['B5'])
         else:
             sd = tensor_swap(sd, arrays['T5'])
-    elif arch in {'llama', "qwen2vl", "pig1g"}:
+    elif arch in {'llama', "qwen2vl", "dog"}:
         sd = tensor_swap(sd, arrays['L3'])
         if arch == "llama":
             sd = llama_permute(sd, 32, 8)
         if arch == "qwen2vl":
             vsd = load_gguf_mmproj(path)
             sd.update(vsd)
-        if arch == "pig1g":
+        if arch == "dog":
             vsd = handle_visual_tensor(path)
             sd.update(vsd)
     elif arch in {'gemma2'}:
