@@ -13,8 +13,8 @@ from .gguf_connector.writer import GGUFWriter, GGMLQuantizationType
 from .gguf_connector.const import GGML_QUANT_VERSION, LlamaFileType
 from .gguf_connector.quant import quantize, dequantize, QuantError
 from .gguf_connector.quant5a import dequantize_tensor, is_quantized, is_torch_compatible
+from .gguf_connector.mmj import find_mmproj_pair, find_tokenzier_pair
 from .gguf_connector.tkn import get_field, tokenizer_builder
-from .gguf_connector.mmj import find_mmproj_pair
 pig = os.path.join(os.path.dirname(__file__), 'version.json')
 with open(pig, 'r') as file:
     data = json.load(file)
@@ -412,6 +412,13 @@ def load_gguf_mmproj(path):
     else:
         vsd = handle_visual_tensor(target)
     return vsd
+def load_safetensors_tokenizer(path):
+    target = find_tokenzier_pair(path)
+    if not target:
+        tsd = {}
+    else:
+        tsd = comfy.utils.load_torch_file(target, safe_load=True)
+    return tsd
 def load_gguf_clip(path):
     sd, arch = load_gguf_sd(path, return_arch=True)
     if arch in {'t5', 't5encoder'}:
@@ -436,6 +443,10 @@ def load_gguf_clip(path):
     elif arch in {'gemma2'}:
         sd["spiece_model"] = tokenizer_builder(path)
         sd = tensor_swap(sd, arrays['G2'])
+    elif arch in {'cat'}:
+        sd = pig_work(sd)
+        tsd = load_safetensors_tokenizer(path)
+        sd.update(tsd)
     elif arch in {'pig'}:
         sd = pig_work(sd)
     else:
