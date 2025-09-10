@@ -183,7 +183,7 @@ class GGMLLayer(torch.nn.Module):
             destination[prefix + 'bias'] = bias
         if self.largest_layer:
             shape = getattr(self.weight, 'tensor_shape', self.weight.shape)
-            dtype = self.dequant_dtype or torch.float16
+            dtype = (self.dequant_dtype and self.dequant_dtype != "target") or torch.float16
             temp = torch.empty(*shape, device=torch.device('meta'), dtype=dtype)
             destination[prefix + 'temp.weight'] = temp
         return
@@ -747,14 +747,10 @@ class GGUFSave:
         writer, state_dict, model_arch = load_model(path)
         writer.add_quantization_version(GGML_QUANT_VERSION)
         if next(iter(state_dict.values())).dtype == torch.bfloat16:
-            output_path = (
-                f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-bf16.gguf'
-                )
+            output_path = (f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-bf16.gguf')
             writer.add_file_type(LlamaFileType.MOSTLY_BF16)
         else:
-            output_path = (
-                f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-f16.gguf'
-                )
+            output_path = (f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-f16.gguf')
             writer.add_file_type(LlamaFileType.MOSTLY_F16)
         if os.path.isfile(output_path):
             input('Output exists enter to continue or ctrl+c to abort!')
@@ -786,9 +782,7 @@ class GGUFRun:
         writer, state_dict, model_arch = load_pig(path)
         writer.add_quantization_version(GGML_QUANT_VERSION)
         if next(iter(state_dict.values())).dtype == torch.bfloat16:
-            output_path = (
-                f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-bf16.gguf'
-                )
+            output_path = (f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-bf16.gguf')
             writer.add_file_type(LlamaFileType.MOSTLY_BF16)
         else:
             output_path = (f'{self.output_dir}/{os.path.splitext(select_safetensors)[0]}-f16.gguf')
