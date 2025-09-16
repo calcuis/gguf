@@ -223,8 +223,7 @@ class GGMLLayer(torch.nn.Module):
             device)
         if s.bias is not None:
             bias = s.get_weight(s.bias.to(device), dtype)
-            bias = comfy.ops.cast_to(bias, bias_dtype, device, non_blocking
-                =non_blocking, copy=False)
+            bias = comfy.ops.cast_to(bias, bias_dtype, device, non_blocking=non_blocking, copy=False)
         weight = s.get_weight(s.weight.to(device), dtype)
         weight = comfy.ops.cast_to(weight, dtype, device, non_blocking=
             non_blocking, copy=False)
@@ -447,6 +446,9 @@ def load_gguf_clip(path):
         sd = pig_work(sd)
         tsd = load_safetensors_tokenizer(path)
         sd.update(tsd)
+    elif arch in {'cow'}:
+        sd = pig_work(sd)
+        sd["spiece_model"] = sd["spiece_model"].to(torch.uint8)
     elif arch in {'pig'}:
         sd = pig_work(sd)
     else:
@@ -680,9 +682,7 @@ def handle_tensors(args, writer, state_dict, model_arch):
     if max_name_len > MAX_TENSOR_NAME_LENGTH:
         bad_list = ', '.join(f'{key!r} ({namelen})' for key, namelen in
             name_lengths if namelen > MAX_TENSOR_NAME_LENGTH)
-        raise ValueError(
-            f'Can only handle tensor names up to {MAX_TENSOR_NAME_LENGTH} characters. Tensors exceeding the limit: {bad_list}'
-            )
+        raise ValueError(f'Can only handle tensor names up to {MAX_TENSOR_NAME_LENGTH} characters. Tensors exceeding the limit: {bad_list}')
     for key, data in loading(state_dict.items()):
         old_dtype = data.dtype
         if data.dtype == torch.bfloat16:
