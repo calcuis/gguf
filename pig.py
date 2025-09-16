@@ -183,7 +183,7 @@ class GGMLLayer(torch.nn.Module):
             destination[prefix + 'bias'] = bias
         if self.largest_layer:
             shape = getattr(self.weight, 'tensor_shape', self.weight.shape)
-            dtype = self.dequant_dtype if self.dequant_dtype == "target" or self.dequant_dtype is None else torch.float16
+            dtype = torch.float16 if self.dequant_dtype == 'target' or self.dequant_dtype is None else self.dequant_dtype
             temp = torch.empty(*shape, device=torch.device('meta'), dtype=dtype)
             destination[prefix + 'temp.weight'] = temp
         return
