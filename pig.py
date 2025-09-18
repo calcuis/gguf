@@ -513,7 +513,7 @@ class ClipLoaderGGUF:
         base = nodes.CLIPLoader.INPUT_TYPES()
         return {'required': {'clip_name': (s.get_filename_list(),), 'type':
                              base['required']['type']},
-                             'optional':{'device':(['default','cpu'],{'advanced':True}),}}
+                             'optional':{'device':(['default','fp8','cpu'],{'advanced':True}),}}
     RETURN_TYPES = 'CLIP',
     FUNCTION = 'load_clip'
     CATEGORY = 'gguf'
@@ -543,6 +543,7 @@ class ClipLoaderGGUF:
         return clip
     def load_clip(self, clip_name, type='stable_diffusion', device='default'):
         clip_path = folder_paths.get_full_path('clip', clip_name)
+        if clip_name.endswith('.safetensors') and device == 'fp8': device='cpu'
         if clip_name.endswith('.safetensors') and device != 'default':
             clip = comfy.sd.load_clip(ckpt_paths=[clip_path], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=get_clip_type(type), model_options=get_device(device))
             return (clip,)
@@ -723,8 +724,7 @@ def handle_tensors(args, writer, state_dict, model_arch):
 if 'select_safetensors' not in folder_paths.folder_names_and_paths:
     orig = folder_paths.folder_names_and_paths.get('diffusion_models',
         folder_paths.folder_names_and_paths.get('checkpoints', [[], set()]))
-    folder_paths.folder_names_and_paths['select_safetensors'] = orig[0], {
-        '.safetensors'}
+    folder_paths.folder_names_and_paths['select_safetensors'] = orig[0], {'.safetensors'}
 class GGUFSave:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
