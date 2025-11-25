@@ -448,6 +448,7 @@ def load_gguf_clip(path):
     elif arch in {'cow'}:
         sd = pig_work(sd)
         sd["spiece_model"] = sd["spiece_model"].to(torch.uint8)
+        sd["tekken_model"] = sd["tekken_model"].to(torch.uint8)
     elif arch in {'pig'}:
         sd = pig_work(sd)
     else:
