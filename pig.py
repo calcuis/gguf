@@ -428,7 +428,7 @@ def load_gguf_clip(path):
             sd = tensor_swap(sd, arrays['B5'])
         else:
             sd = tensor_swap(sd, arrays['T5'])
-    elif arch in {'llama', "qwen2vl", "dog"}:
+    elif arch in {'llama', "qwen2vl", "qwen3", "dog"}:
         sd = tensor_swap(sd, arrays['L3'])
         if arch == "llama":
             sd = llama_permute(sd, 32, 8)
