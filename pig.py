@@ -220,7 +220,8 @@ class GGMLLayer(torch.nn.Module):
         bias = None
         non_blocking = comfy.model_management.device_supports_non_blocking(
             device)
-        # New Attempt (credit given to @avan06): Handle Bias with Fallback
+        # New Attempt (credit given to @avan06) begins:
+        # Handle Bias with Fallback
         if s.bias is not None:
             try:
                 # Try GPU first
@@ -240,12 +241,7 @@ class GGMLLayer(torch.nn.Module):
             weight = s.get_weight(s.weight.to("cpu"), dtype).to(device)
         weight = comfy.ops.cast_to(weight, dtype, device, non_blocking=
             non_blocking, copy=False)
-        # if s.bias is not None:
-        #     bias = s.get_weight(s.bias.to(device), dtype)
-        #     bias = comfy.ops.cast_to(bias, bias_dtype, device, non_blocking=non_blocking, copy=False)
-        # weight = s.get_weight(s.weight.to(device), dtype)
-        # weight = comfy.ops.cast_to(weight, dtype, device, non_blocking=
-        #     non_blocking, copy=False)
+        # End of the New Attempt session
         return weight, bias
     def forward_comfy_cast_weights(self, input, *args, **kwargs):
         if self.is_ggml_quantized():
@@ -449,6 +445,13 @@ def load_gguf_clip(path):
         else:
             sd = tensor_swap(sd, arrays['T5'])
     elif arch in {'llama', "qwen2vl", "qwen3", "dog"}:
+        # New Attempt (in progress...)
+        token_key = "token_embd.weight"
+        if token_key in sd and sd[token_key].shape[0] >= (64 * 1024):
+            if arch == "llama" and sd[token_key].shape == (131072, 5120):
+                sd["tekken_model"] = tokenizer_builder(path)
+            # sd[token_key] = dequantize_tensor(sd[token_key], dtype=torch.float16)
+        # End of the New Attempt session
         sd = tensor_swap(sd, arrays['L3'])
         if arch == "llama":
             sd = llama_permute(sd, 32, 8)
