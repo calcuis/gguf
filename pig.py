@@ -220,7 +220,7 @@ class GGMLLayer(torch.nn.Module):
         bias = None
         non_blocking = comfy.model_management.device_supports_non_blocking(
             device)
-        # New Attempt: Handle Bias with Fallback
+        # New Attempt (credit given to @avan06): Handle Bias with Fallback
         if s.bias is not None:
             try:
                 # Try GPU first
