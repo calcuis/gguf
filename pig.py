@@ -220,12 +220,32 @@ class GGMLLayer(torch.nn.Module):
         bias = None
         non_blocking = comfy.model_management.device_supports_non_blocking(
             device)
+        # New Attempt: Handle Bias with Fallback
         if s.bias is not None:
-            bias = s.get_weight(s.bias.to(device), dtype)
+            try:
+                # Try GPU first
+                bias = s.get_weight(s.bias.to(device), dtype)
+            except torch.cuda.OutOfMemoryError:
+                # Fallback to CPU
+                torch.cuda.empty_cache()
+                bias = s.get_weight(s.bias.to("cpu"), dtype).to(device)
             bias = comfy.ops.cast_to(bias, bias_dtype, device, non_blocking=non_blocking, copy=False)
-        weight = s.get_weight(s.weight.to(device), dtype)
+        # Handle Weight with Fallback (Primary source of OOM)
+        try:
+            # Try GPU first (Fast path)
+            weight = s.get_weight(s.weight.to(device), dtype)
+        except torch.cuda.OutOfMemoryError:
+            # Fallback to CPU (Safe path)
+            torch.cuda.empty_cache()
+            weight = s.get_weight(s.weight.to("cpu"), dtype).to(device)
         weight = comfy.ops.cast_to(weight, dtype, device, non_blocking=
             non_blocking, copy=False)
+        # if s.bias is not None:
+        #     bias = s.get_weight(s.bias.to(device), dtype)
+        #     bias = comfy.ops.cast_to(bias, bias_dtype, device, non_blocking=non_blocking, copy=False)
+        # weight = s.get_weight(s.weight.to(device), dtype)
+        # weight = comfy.ops.cast_to(weight, dtype, device, non_blocking=
+        #     non_blocking, copy=False)
         return weight, bias
     def forward_comfy_cast_weights(self, input, *args, **kwargs):
         if self.is_ggml_quantized():
