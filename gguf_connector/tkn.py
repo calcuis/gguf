@@ -1,3 +1,4 @@
+import torch, json, base64
 import torch
 from .reader import GGUFReader, GGUFValueType
 def get_field(reader, field_name, field_type):
@@ -6,9 +7,7 @@ def get_field(reader, field_name, field_type):
         return None
     elif field_type == str:
         if len(field.types) != 1 or field.types[0] != GGUFValueType.STRING:
-            raise TypeError(
-                f'Bad type for GGUF {field_name} key: expected string, got {field.types!r}'
-                )
+            raise TypeError(f'Bad type for GGUF {field_name} key: expected string, got {field.types!r}')
         return str(field.parts[field.data[-1]], encoding='utf-8')
     elif field_type in [int, float, bool]:
         return field_type(field.parts[field.data[-1]])
@@ -58,3 +57,32 @@ def tokenizer_builder(path):
         f'Rebuilt tokenizer successfully with vocab size of {len(spm.pieces)}')
     del reader
     return torch.ByteTensor(list(spm.SerializeToString()))
+def tekken_builder(path):
+    print('Attempting to rebuild tekken tokenizer from metadata...')
+    from transformers.convert_slow_tokenizer import bytes_to_unicode
+    reader = GGUFReader(path)
+    model_str = get_field(reader, 'tokenizer.ggml.model', str)
+    if model_str == 'gpt2':
+        data = {
+            "config": {"num_vocab_tokens": 150000, "default_vocab_size": 131072},
+            "vocab": [],
+            "special_tokens": [],
+        }
+    else:
+        raise NotImplementedError(f'Unknown model {model_str}')
+    tokens = get_list_field(reader, 'tokenizer.ggml.tokens', str)
+    toktypes = get_list_field(reader, 'tokenizer.ggml.token_type', int)
+    decoder = {v: k for k, v in bytes_to_unicode().items()}
+    for idx, (token, toktype) in enumerate(zip(tokens, toktypes)):
+        if toktype == 3:
+            data['special_tokens'].append({'rank': idx, 'token_str': token, 'is_control': True})
+        else:
+            tok = bytes([decoder[char] for char in token])
+            data['vocab'].append({
+                'rank': len(data['vocab']),
+                'token_bytes': base64.b64encode(tok).decode('ascii'),
+                'token_str': tok.decode('utf-8', errors='replace')
+            })
+    print(f"Rebuilt tokenizer successfully with vocab size of {len(data['vocab'])} ({len(data['special_tokens'])})")
+    del reader
+    return torch.ByteTensor(list(json.dumps(data).encode('utf-8')))
