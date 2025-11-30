@@ -84,5 +84,4 @@ def tekken_builder(path):
             })
     print(f"Rebuilt tokenizer successfully with vocab size of {len(data['vocab'])} ({len(data['special_tokens'])})")
     del reader
-
     return torch.ByteTensor(list(json.dumps(data).encode('utf-8')))
