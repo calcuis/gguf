@@ -13,7 +13,7 @@ from .gguf_connector.const import GGML_QUANT_VERSION, LlamaFileType
 from .gguf_connector.quant import quantize, dequantize, QuantError
 from .gguf_connector.quant5a import dequantize_tensor, is_quantized, is_torch_compatible
 from .gguf_connector.mmj import find_mmproj_pair, find_tokenzier_pair
-from .gguf_connector.tkn import get_field, tokenizer_builder
+from .gguf_connector.tkn import get_field, tokenizer_builder, tekken_builder
 pig = os.path.join(os.path.dirname(__file__), 'version.json')
 with open(pig, 'r') as file:
     data = json.load(file)
@@ -220,28 +220,22 @@ class GGMLLayer(torch.nn.Module):
         bias = None
         non_blocking = comfy.model_management.device_supports_non_blocking(
             device)
-        # New Attempt (credit given to @avan06) begins:
-        # Handle Bias with Fallback
+        # Handle Bias with Fallback (credit given to @avan06)
         if s.bias is not None:
-            try:
-                # Try GPU first
+            try: # Try GPU first
                 bias = s.get_weight(s.bias.to(device), dtype)
-            except torch.cuda.OutOfMemoryError:
-                # Fallback to CPU
+            except torch.cuda.OutOfMemoryError: # Fallback to CPU
                 torch.cuda.empty_cache()
                 bias = s.get_weight(s.bias.to("cpu"), dtype).to(device)
             bias = comfy.ops.cast_to(bias, bias_dtype, device, non_blocking=non_blocking, copy=False)
-        # Handle Weight with Fallback (Primary source of OOM)
+        # Handle Weight with Fallback (Fix this primary source of OOM)
         try:
-            # Try GPU first (Fast path)
             weight = s.get_weight(s.weight.to(device), dtype)
         except torch.cuda.OutOfMemoryError:
-            # Fallback to CPU (Safe path)
             torch.cuda.empty_cache()
             weight = s.get_weight(s.weight.to("cpu"), dtype).to(device)
         weight = comfy.ops.cast_to(weight, dtype, device, non_blocking=
             non_blocking, copy=False)
-        # End of the New Attempt session
         return weight, bias
     def forward_comfy_cast_weights(self, input, *args, **kwargs):
         if self.is_ggml_quantized():
@@ -445,13 +439,11 @@ def load_gguf_clip(path):
         else:
             sd = tensor_swap(sd, arrays['T5'])
     elif arch in {'llama', "qwen2vl", "qwen3", "dog"}:
-        # New Attempt (in progress...)
         token_key = "token_embd.weight"
         if token_key in sd and sd[token_key].shape[0] >= (64 * 1024):
             if arch == "llama" and sd[token_key].shape == (131072, 5120):
-                sd["tekken_model"] = tokenizer_builder(path)
-            # sd[token_key] = dequantize_tensor(sd[token_key], dtype=torch.float16)
-        # End of the New Attempt session
+                sd["tekken_model"] = tekken_builder(path)
+            sd[token_key] = dequantize_tensor(sd[token_key], dtype=torch.float16)
         sd = tensor_swap(sd, arrays['L3'])
         if arch == "llama":
             sd = llama_permute(sd, 32, 8)
