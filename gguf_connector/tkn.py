@@ -1,5 +1,4 @@
 import torch, json, base64
-import torch
 from .reader import GGUFReader, GGUFValueType
 def get_field(reader, field_name, field_type):
     field = reader.get_field(field_name)
@@ -85,4 +84,5 @@ def tekken_builder(path):
             })
     print(f"Rebuilt tokenizer successfully with vocab size of {len(data['vocab'])} ({len(data['special_tokens'])})")
     del reader
+
     return torch.ByteTensor(list(json.dumps(data).encode('utf-8')))
