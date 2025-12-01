@@ -438,7 +438,7 @@ def load_gguf_clip(path):
             sd = tensor_swap(sd, arrays['B5'])
         else:
             sd = tensor_swap(sd, arrays['T5'])
-    elif arch in {'llama', "qwen2vl", "qwen3", "dog"}:
+    elif arch in {'llama', 'qwen2vl', 'qwen3vl', 'qwen2', 'qwen3', 'dog'}:
         token_key = "token_embd.weight"
         if token_key in sd and sd[token_key].shape[0] >= (64 * 1024):
             if arch == "llama" and sd[token_key].shape == (131072, 5120):
