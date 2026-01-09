@@ -515,9 +515,12 @@ class LoaderGGUF:
         else:
             ops.Linear.patch_dtype = getattr(torch, patch_dtype)
         model_path = folder_paths.get_full_path('unet', gguf_name)
-        sd, metadata = load_gguf_sd(model_path)
+        # sd, metadata = load_gguf_sd(model_path)
+        # model = comfy.sd.load_diffusion_model_state_dict(sd, model_options=
+        #     {'custom_operations': ops}, metadata=metadata)
+        sd = load_gguf_sd(model_path)
         model = comfy.sd.load_diffusion_model_state_dict(sd, model_options=
-            {'custom_operations': ops}, metadata=metadata)
+            {'custom_operations': ops})
         if model is None:
             logging.error('ERROR UNSUPPORTED MODEL {}'.format(model_path))
             raise RuntimeError('ERROR: Could not detect model type of: {}'.
