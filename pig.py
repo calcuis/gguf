@@ -319,24 +319,24 @@ def get_orig_shape(reader, tensor_name):
         raise TypeError(f'Bad original shape metadata for {field_key}: Expected ARRAY of INT32, got {field.types}')
     return torch.Size(tuple(int(field.parts[part_idx][0]) for part_idx in
         field.data))
-def get_gguf_metadata(reader):
-    """Extract all simple metadata fields like safetensors"""
-    metadata = {}
-    for field_name in reader.fields:
-        try:
-            field = reader.get_field(field_name)
-            if len(field.types) == 1:  # Simple scalar fields only
-                if field.types[0] == gguf.GGUFValueType.STRING:
-                    metadata[field_name] = str(field.parts[field.data[-1]], "utf-8")
-                elif field.types[0] == gguf.GGUFValueType.INT32:
-                    metadata[field_name] = int(field.parts[field.data[-1]])
-                elif field.types[0] == gguf.GGUFValueType.F32:
-                    metadata[field_name] = float(field.parts[field.data[-1]])
-                elif field.types[0] == gguf.GGUFValueType.BOOL:
-                    metadata[field_name] = bool(field.parts[field.data[-1]])
-        except:
-            continue
-    return metadata
+# def get_gguf_metadata(reader):
+#     """Extract all simple metadata fields like safetensors"""
+#     metadata = {}
+#     for field_name in reader.fields:
+#         try:
+#             field = reader.get_field(field_name)
+#             if len(field.types) == 1:  # Simple scalar fields only
+#                 if field.types[0] == gguf.GGUFValueType.STRING:
+#                     metadata[field_name] = str(field.parts[field.data[-1]], "utf-8")
+#                 elif field.types[0] == gguf.GGUFValueType.INT32:
+#                     metadata[field_name] = int(field.parts[field.data[-1]])
+#                 elif field.types[0] == gguf.GGUFValueType.F32:
+#                     metadata[field_name] = float(field.parts[field.data[-1]])
+#                 elif field.types[0] == gguf.GGUFValueType.BOOL:
+#                     metadata[field_name] = bool(field.parts[field.data[-1]])
+#         except:
+#             continue
+#     return metadata
 def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
     False):
     reader = gr.GGUFReader(path)
@@ -383,10 +383,12 @@ def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
     if len(qsd) > 0:
         max_key = max(qsd.keys(), key=lambda k: qsd[k].numel())
         state_dict[max_key].is_largest_weight = True
-    metadata = get_gguf_metadata(reader)
+    # metadata = get_gguf_metadata(reader)
     if return_arch:
-        return (state_dict, arch_str, metadata)
-    return (state_dict, metadata)
+    #     return (state_dict, arch_str, metadata)
+    # return (state_dict, metadata)
+        return state_dict, arch_str
+    return state_dict
 def tensor_swap(raw_sd, key_map):
     sd = {}
     for k, v in raw_sd.items():
