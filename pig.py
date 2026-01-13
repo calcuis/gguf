@@ -3,7 +3,7 @@ import comfy.ops
 import comfy.utils
 import comfy.model_patcher
 import comfy.model_management
-import torch, numpy, os, json, logging, collections, nodes, folder_paths
+import torch, numpy, os, json, logging, collections, nodes, folder_paths, inspect
 from safetensors.torch import load_file, save_file
 from typing import Dict, Tuple
 from tqdm import tqdm as loading
@@ -319,24 +319,24 @@ def get_orig_shape(reader, tensor_name):
         raise TypeError(f'Bad original shape metadata for {field_key}: Expected ARRAY of INT32, got {field.types}')
     return torch.Size(tuple(int(field.parts[part_idx][0]) for part_idx in
         field.data))
-# def get_gguf_metadata(reader):
-#     """Extract all simple metadata fields like safetensors"""
-#     metadata = {}
-#     for field_name in reader.fields:
-#         try:
-#             field = reader.get_field(field_name)
-#             if len(field.types) == 1:  # Simple scalar fields only
-#                 if field.types[0] == gguf.GGUFValueType.STRING:
-#                     metadata[field_name] = str(field.parts[field.data[-1]], "utf-8")
-#                 elif field.types[0] == gguf.GGUFValueType.INT32:
-#                     metadata[field_name] = int(field.parts[field.data[-1]])
-#                 elif field.types[0] == gguf.GGUFValueType.F32:
-#                     metadata[field_name] = float(field.parts[field.data[-1]])
-#                 elif field.types[0] == gguf.GGUFValueType.BOOL:
-#                     metadata[field_name] = bool(field.parts[field.data[-1]])
-#         except:
-#             continue
-#     return metadata
+def get_gguf_metadata(reader):
+    """Extract all simple metadata fields like safetensors"""
+    metadata = {}
+    for field_name in reader.fields:
+        try:
+            field = reader.get_field(field_name)
+            if len(field.types) == 1:  # Simple scalar fields only
+                if field.types[0] == gr.GGUFValueType.STRING:
+                    metadata[field_name] = str(field.parts[field.data[-1]], "utf-8")
+                elif field.types[0] == gr.GGUFValueType.INT32:
+                    metadata[field_name] = int(field.parts[field.data[-1]])
+                elif field.types[0] == gr.GGUFValueType.F32:
+                    metadata[field_name] = float(field.parts[field.data[-1]])
+                elif field.types[0] == gr.GGUFValueType.BOOL:
+                    metadata[field_name] = bool(field.parts[field.data[-1]])
+        except:
+            continue
+    return metadata
 def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
     False):
     reader = gr.GGUFReader(path)
@@ -388,7 +388,13 @@ def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
     #     return (state_dict, arch_str, metadata)
     # return (state_dict, metadata)
         return state_dict, arch_str
-    return state_dict
+    # return state_dict
+    # extra info to return
+    extra = {
+        "arch_str": arch_str,
+        "metadata": get_gguf_metadata(reader)
+    }
+    return (state_dict, extra)
 def tensor_swap(raw_sd, key_map):
     sd = {}
     for k, v in raw_sd.items():
@@ -518,9 +524,16 @@ class LoaderGGUF:
         # sd, metadata = load_gguf_sd(model_path)
         # model = comfy.sd.load_diffusion_model_state_dict(sd, model_options=
         #     {'custom_operations': ops}, metadata=metadata)
-        sd = load_gguf_sd(model_path)
+        sd, extra = load_gguf_sd(model_path)
+        # sd = load_gguf_sd(model_path)
+        # model = comfy.sd.load_diffusion_model_state_dict(sd, model_options=
+        #     {'custom_operations': ops})
+        kwargs = {}
+        valid_params = inspect.signature(comfy.sd.load_diffusion_model_state_dict).parameters
+        if "metadata" in valid_params:
+            kwargs["metadata"] = extra.get("metadata", {})
         model = comfy.sd.load_diffusion_model_state_dict(sd, model_options=
-            {'custom_operations': ops})
+            {"custom_operations": ops}, **kwargs,)
         if model is None:
             logging.error('ERROR UNSUPPORTED MODEL {}'.format(model_path))
             raise RuntimeError('ERROR: Could not detect model type of: {}'.
