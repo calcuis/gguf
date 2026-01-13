@@ -85,3 +85,38 @@ def tekken_builder(path):
     print(f"Rebuilt tokenizer successfully with vocab size of {len(data['vocab'])} ({len(data['special_tokens'])})")
     del reader
     return torch.ByteTensor(list(json.dumps(data).encode('utf-8')))
+def gemma3_tokenizer_builder(path):
+    print(f'Attempting to rebuild sentencepiece tokenizer from metadata..')
+    try:
+        from sentencepiece import sentencepiece_model_pb2 as model
+    except ImportError:
+        raise ImportError('protobuf is required; pip install protobuf')
+    spm = model.ModelProto()
+    reader = GGUFReader(path)
+    spm.normalizer_spec.name = "identity"
+    spm.normalizer_spec.add_dummy_prefix = False
+    spm.trainer_spec.model_type = 2
+    spm.trainer_spec.input_format = "tsv"
+    spm.trainer_spec.byte_fallback = True
+    spm.trainer_spec.max_sentence_length = 4192
+    spm.trainer_spec.bos_piece = "<bos>"
+    tokens = get_list_field(reader, "tokenizer.ggml.tokens", str)
+    scores = get_list_field(reader, "tokenizer.ggml.scores", float)
+    toktype = get_list_field(reader, "tokenizer.ggml.token_type", int)
+    if not tokens or not scores or not toktype:
+        raise ValueError("No tokenizer metadata found")
+    for idx in range(len(tokens)):
+        piece = spm.SentencePiece()
+        piece.piece = tokens[idx]
+        if idx == 3:  # UNK position
+            piece.type = 2  # UNK Token
+            piece.score = 0.0 # UNK Score
+        else:
+            piece.type = toktype[idx]
+            piece.score = scores[idx]
+        spm.pieces.append(piece)
+    spm.trainer_spec.vocab_size = len(spm.pieces)
+    print(
+        f'Rebuilt tokenizer successfully with vocab size of {len(spm.pieces)}')
+    del reader
+    return torch.ByteTensor(list(spm.SerializeToString()))
