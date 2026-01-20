@@ -338,7 +338,7 @@ def get_gguf_metadata(reader):
             continue
     return metadata
 def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
-    False):
+    False, is_extra=True):
     reader = gr.GGUFReader(path)
     has_prefix = False
     if handle_prefix is not None:
@@ -385,12 +385,18 @@ def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
         state_dict[max_key].is_largest_weight = True
     if return_arch:
         return state_dict, arch_str
-    # return state_dict
-    extra = {
-        "arch_str": arch_str,
-        "metadata": get_gguf_metadata(reader)
-    }
-    return (state_dict, extra)
+    if is_extra:
+        extra = {
+            "arch_str": arch_str,
+            "metadata": get_gguf_metadata(reader)
+        }
+        return (state_dict, extra)
+    return state_dict
+    # extra = {
+    #     "arch_str": arch_str,
+    #     "metadata": get_gguf_metadata(reader)
+    # }
+    # return (state_dict, extra)
 def tensor_swap(raw_sd, key_map):
     sd = {}
     for k, v in raw_sd.items():
@@ -434,7 +440,8 @@ def gemma_norm(sd):
             corrected += 1
     return sd
 def handle_visual_tensor(path):
-    vsd = load_gguf_sd(path)
+    # vsd = load_gguf_sd(path)
+    vsd = load_gguf_sd(path,is_extra=False)
     if "v.patch_embd.weight.1" in vsd:
         w1 = dequantize_tensor(vsd.pop("v.patch_embd.weight"), dtype=torch.float32)
         w2 = dequantize_tensor(vsd.pop("v.patch_embd.weight.1"), dtype=torch.float32)
