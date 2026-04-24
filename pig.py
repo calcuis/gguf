@@ -486,10 +486,10 @@ def load_gguf_clip(path):
             sd = tensor_swap(sd, arrays['B5'])
         else:
             sd = tensor_swap(sd, arrays['T5'])
-    elif arch in {'llama', 'qwen2vl', 'qwen3vl', 'qwen2', 'qwen3', 'gemma3', 'dog'}:
+    elif arch in {'llama', 'qwen2vl', 'qwen3vl', 'qwen2', 'qwen3', 'gemma3', 'mistral3', 'dog'}:
         token_key = "token_embd.weight"
         if token_key in sd and sd[token_key].shape[0] >= (64 * 1024):
-            if arch == "llama" and sd[token_key].shape == (131072, 5120):
+            if (arch == "llama" and sd[token_key].shape == (131072, 5120)) or (arch == "mistral3" and sd[token_key].shape == (131072, 3072)):
                 sd["tekken_model"] = tekken_builder(path)
             elif arch == "gemma3":
                 sd["spiece_model"] = gemma3_tokenizer_builder(path)
@@ -501,7 +501,7 @@ def load_gguf_clip(path):
             sd = gemma_norm(sd)
         else:
             sd = tensor_swap(sd, arrays['L3'])
-        if arch == "llama":
+        if arch == "llama" or arch == "mistral3":
             sd = llama_permute(sd, 32, 8)
         if arch == "qwen2vl":
             vsd = load_gguf_mmproj(path)
