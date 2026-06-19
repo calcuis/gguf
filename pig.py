@@ -512,6 +512,14 @@ def load_gguf_clip(path):
     elif arch in {'gemma2'}:
         sd["spiece_model"] = tokenizer_builder(path)
         sd = tensor_swap(sd, arrays['G2'])
+    elif arch == "ideogram" or arch == "ideogram4":
+            target_dtype = torch.bfloat16 if device_supports_bf16() else torch.float16
+            dequantized_count = 0
+            for key in loading(list(sd.keys()), desc="Dequantizing Tensors"):
+                if is_quantized(sd[key]):
+                    sd[key] = dequantize_tensor(sd[key], dtype=target_dtype)
+                    dequantized_count += 1
+            logging.info(f"Dequantized {dequantized_count} tensor ({target_dtype})")
     elif arch in {'cat'}:
         sd = pig_work(sd)
         tsd = load_safetensors_tokenizer(path)
