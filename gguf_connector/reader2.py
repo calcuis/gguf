@@ -17,8 +17,9 @@ class GGUFReader:
         'GGML_TYPE_IQ3_S', (22): 'GGML_TYPE_IQ2_S', (23):
         'GGML_TYPE_IQ4_XS', (24): 'GGML_TYPE_I8', (25): 'GGML_TYPE_I16', (
         26): 'GGML_TYPE_I32', (27): 'GGML_TYPE_I64', (28): 'GGML_TYPE_F64',
-        (29): 'GGML_TYPE_IQ1_M', (30): 'GGML_TYPE_BF16', (32):
-        'GGML_TYPE_BF16', (34): 'GGML_TYPE__TQ1_0', (35): 'GGML_TYPE__TQ2_0'}
+        (29): 'GGML_TYPE_IQ1_M', (30): 'GGML_TYPE_BF16', (34):
+        'GGML_TYPE_TQ1_0', (35): 'GGML_TYPE_TQ2_0', (39): 'GGML_TYPE_MXFP4',
+        (40): 'GGML_TYPE_NVFP4', (41): 'GGML_TYPE_Q1_0'}
     def __init__(self, file_path):
         """Initialize the GGUF reader"""
         self.file_path = file_path

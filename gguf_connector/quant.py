@@ -490,6 +490,84 @@ class TQ2_0(__Quant, qtype=GGMLQuantizationType.TQ2_0):
             dtype=np.uint8).reshape((1, 1, 4, 1))
         qs = (qs & 3).reshape((n_blocks, -1)).astype(np.int8) - np.int8(1)
         return d * qs.astype(np.float32)
+class MXFP4(__Quant, qtype=GGMLQuantizationType.MXFP4):
+    kvalues = 0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12
+    @staticmethod
+    def e8m0_to_fp32_half(x):
+        bits = np.where(x < 2, np.uint32(2097152) << np.uint32(x), np.
+            uint32(x - 1) << np.uint32(23))
+        return bits.view(np.float32)
+    @classmethod
+    def quantize_blocks(cls, blocks):
+        n_blocks = blocks.shape[0]
+        d = abs(blocks).max(axis=-1, keepdims=True)
+        with np.errstate(divide='ignore'):
+            e = np.where(d > 0, np.floor(np.log2(d)) - 2 + 127, 0).astype(np
+                .uint8)
+        d = cls.e8m0_to_fp32_half(e)
+        kvalues = np.array(cls.kvalues, dtype=np.int8).reshape((1, 1, 16))
+        errs = np.abs(d.reshape((n_blocks, 1, 1)) * kvalues.astype(np.
+            float32) - blocks.reshape((n_blocks, cls.block_size, 1)))
+        best = np.argmin(errs, axis=-1, keepdims=True)
+        qs = best.reshape(n_blocks, 2, cls.block_size // 2).astype(np.uint8)
+        qs = qs[:, 0] | qs[:, 1] << np.uint8(4)
+        qs = qs.reshape((n_blocks, cls.block_size // 2))
+        return np.concatenate([e, qs], axis=-1)
+    @classmethod
+    def dequantize_blocks(cls, blocks):
+        n_blocks = blocks.shape[0]
+        e, qs = np.hsplit(blocks, [1])
+        d = cls.e8m0_to_fp32_half(e)
+        qs = qs.reshape((n_blocks, 1, cls.block_size // 2)) >> np.array([0,
+            4], dtype=np.uint8).reshape((1, 2, 1))
+        qs = (qs & np.uint8(15)).view(np.int8)
+        kvalues = np.array(cls.kvalues, dtype=np.int8).reshape(1, 1, 16)
+        qs = np.take_along_axis(kvalues, qs, axis=-1).reshape((n_blocks,
+            cls.block_size))
+        return d * qs.astype(np.float32)
+class NVFP4(__Quant, qtype=GGMLQuantizationType.NVFP4):
+    kvalues = 0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12
+    @staticmethod
+    def ue4m3_to_fp32(x):
+        """Decode unsigned E4M3 (bias=7) to float, with 0.5 factor for kvalues convention."""
+        exp = (x >> 3).astype(np.int32) & 15
+        man = (x & 7).astype(np.float32)
+        raw = np.where(exp == 0, man * 2 ** -9, (1.0 + man / 8.0) * 2.0 **
+            (exp.astype(np.float32) - 7))
+        return np.where((x == 0) | (x == 127), 0.0, raw * 0.5)
+    @staticmethod
+    def fp32_to_ue4m3(x):
+        """Vectorized float32 to unsigned E4M3, matching ggml_fp32_to_ue4m3 in C."""
+        x = np.clip(x, 0.0, 448.0).astype(np.float32)
+        bits = x.view(np.uint32)
+        fp32_exp = (bits >> 23 & 255).astype(np.int32) - 127
+        fp32_man = (bits >> 20 & 7).astype(np.int32)
+        ue4m3_exp = fp32_exp + 7
+        sub_man = np.clip((x * 512.0 + 0.5).astype(np.int32), 0, 7)
+        sub_result = np.where(sub_man >= 1, sub_man, 0).astype(np.uint8)
+        round_bit = (bits >> 19 & 1).astype(np.int32)
+        man = fp32_man + round_bit
+        exp = ue4m3_exp.copy()
+        overflow = man > 7
+        man = np.where(overflow, 0, man)
+        exp = np.where(overflow, exp + 1, exp)
+        normal_result = np.where(exp >= 15, np.uint8(126), (exp << 3 | man)
+            .astype(np.uint8))
+        return np.where(x <= 0.0, np.uint8(0), np.where(ue4m3_exp <= 0,
+            sub_result, np.where(ue4m3_exp >= 15, np.uint8(126),
+            normal_result)))
+    @classmethod
+    def dequantize_blocks(cls, blocks):
+        n_super = blocks.shape[0]
+        d_bytes, qs = np.hsplit(blocks, [4])
+        d = cls.ue4m3_to_fp32(d_bytes).reshape(n_super, 4, 1)
+        qs = qs.reshape(n_super, 4, 8)
+        lo = (qs & np.uint8(15)).view(np.int8)
+        hi = (qs >> np.uint8(4)).view(np.int8)
+        vals = np.concatenate([lo, hi], axis=-1)
+        kvalues = np.array(cls.kvalues, dtype=np.int8).reshape(1, 1, 16)
+        vals = np.take_along_axis(kvalues, vals, axis=-1)
+        return (d * vals.astype(np.float32)).reshape(n_super, 64)
 class IQ2_XXS(__Quant, qtype=GGMLQuantizationType.IQ2_XXS):
     ksigns: bytes = (
         b'\x00\x81\x82\x03\x84\x05\x06\x87\x88\t\n\x8b\x0c\x8d\x8e\x0f\x90\x11\x12\x93\x14\x95\x96\x17\x18\x99\x9a\x1b\x9c\x1d\x1e\x9f\xa0!"\xa3$\xa5\xa6\'(\xa9\xaa+\xac-.\xaf0\xb1\xb23\xb456\xb7\xb89:\xbb<\xbd\xbe?\xc0AB\xc3D\xc5\xc6GH\xc9\xcaK\xccMN\xcfP\xd1\xd2S\xd4UV\xd7\xd8YZ\xdb\\\xdd\xde_`\xe1\xe2c\xe4ef\xe7\xe8ij\xebl\xed\xeeo\xf0qr\xf3t\xf5\xf6wx\xf9\xfa{\xfc}~\xff'

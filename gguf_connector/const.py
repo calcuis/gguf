@@ -982,6 +982,8 @@ class GGMLQuantizationType(IntEnum):
     TQ1_0 = 34
     TQ2_0 = 35
     MXFP4 = 39
+    NVFP4 = 40
+    Q1_0 = 41
 class ExpertGatingFuncType(IntEnum):
     SOFTMAX = 1
     SIGMOID = 2
@@ -1020,6 +1022,8 @@ class LlamaFileType(IntEnum):
     MOSTLY_TQ1_0 = 36
     MOSTLY_TQ2_0 = 37
     MOSTLY_MXFP4_MOE = 38
+    MOSTLY_NVFP4 = 39
+    MOSTLY_Q1_0 = 40
     GUESSED = 1024
 class GGUFEndian(IntEnum):
     LITTLE = 0
@@ -1078,7 +1082,8 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
     GGMLQuantizationType.IQ1_M: (256, QK_K // 8 + QK_K // 16 + QK_K // 32),
     GGMLQuantizationType.BF16: (1, 2), GGMLQuantizationType.TQ1_0: (256, 2 +
     4 * 13), GGMLQuantizationType.TQ2_0: (256, 2 + 64),
-    GGMLQuantizationType.MXFP4: (32, 1 + 16)}
+    GGMLQuantizationType.MXFP4: (32, 1 + 16), GGMLQuantizationType.NVFP4: (
+    64, 4 + 32), GGMLQuantizationType.Q1_0: (128, 2 + 16)}
 KEY_GENERAL_ARCHITECTURE = Keys.General.ARCHITECTURE
 KEY_GENERAL_QUANTIZATION_VERSION = Keys.General.QUANTIZATION_VERSION
 KEY_GENERAL_ALIGNMENT = Keys.General.ALIGNMENT
