@@ -446,6 +446,8 @@ def handle_visual_tensor(path):
         w1 = dequantize_tensor(vsd.pop("v.patch_embd.weight"), dtype=torch.float32)
         w2 = dequantize_tensor(vsd.pop("v.patch_embd.weight.1"), dtype=torch.float32)
         vsd["v.patch_embd.weight"] = torch.stack([w1, w2], dim=2)
+    if any("deepstack" in key for key in vsd): 
+        return tensor_swap(vsd, arrays['Q4'])
     vsd = tensor_swap(vsd, arrays['V7'])
     if "visual.blocks.0.attn_q.weight" in vsd:
         attns = {}
@@ -503,7 +505,7 @@ def load_gguf_clip(path):
             sd = tensor_swap(sd, arrays['L3'])
         if arch == "llama" or arch == "mistral3":
             sd = llama_permute(sd, 32, 8)
-        if arch == "qwen2vl":
+        if arch == "qwen2vl" or arch == "qwen3vl":
             vsd = load_gguf_mmproj(path)
             sd.update(vsd)
         if arch == "dog":
