@@ -5,8 +5,7 @@ def split_block_dims(blocks, *args):
     return torch.split(blocks, dims, dim=1)
 def to_uint32(x):
     x = x.view(torch.uint8).to(torch.int32)
-    return (x[:, 0] | x[:, 1] << 8 | x[:, 2] << 16 | x[:, 3] << 24).unsqueeze(1
-        )
+    return (x[:, 0] | x[:, 1] << 8 | x[:, 2] << 16 | x[:, 3] << 24).unsqueeze(1)
 def get_scale_min(scales):
     n_blocks = scales.shape[0]
     scales = scales.view(torch.uint8)
@@ -34,6 +33,25 @@ def load_grid_tensor(grid_shape, grid_hex, grid_map, device):
     return grid.view(1, 1, *grid_shape)
 def e8m0_to_fp32_half(x):
     x = x.to(torch.int32)
-    bits = torch.where(x < 2, torch.int32(2097152) << x, x - 1 << torch.
-        int32(23))
+    bits = torch.where(
+        x < 2,
+        torch.tensor(2097152, dtype=torch.int32, device=x.device) << x,
+        (x - 1) << 23,
+    )
     return bits.view(torch.float32)
+def ue4m3_to_fp32(x):
+    x_int = x.to(torch.int32)
+    exp = (x_int >> 3) & 15
+    man = (x_int & 7).to(torch.float32)
+    raw_subnormal = man * (2.0 ** -9)
+    raw_normal = (1.0 + man / 8.0) * torch.pow(
+        torch.tensor(2.0, dtype=torch.float32, device=x.device),
+        exp.to(torch.float32) - 7.0,
+    )
+    raw = torch.where(exp == 0, raw_subnormal, raw_normal)
+    out = torch.where(
+        (x_int == 0) | (x_int == 127),
+        torch.zeros_like(raw),
+        raw * 0.5,
+    )
+    return out
