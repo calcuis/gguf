@@ -5,7 +5,14 @@ def split_block_dims(blocks, *args):
     return torch.split(blocks, dims, dim=1)
 def to_uint32(x):
     x = x.view(torch.uint8).to(torch.int32)
-    return (x[:, 0] | x[:, 1] << 8 | x[:, 2] << 16 | x[:, 3] << 24).unsqueeze(1)
+    return (x[:, 0] | x[:, 1] << 8 | x[:, 2] << 16 | x[:, 3] << 24).unsqueeze(1
+        )
+def _to_uint32(x):
+    x = x.to(torch.int64)
+    return x[..., 0] | x[..., 1] << 8 | x[..., 2] << 16 | x[..., 3] << 24
+def _to_uint16(x):
+    x = x.to(torch.int64)
+    return x[..., 0] | x[..., 1] << 8
 def get_scale_min(scales):
     n_blocks = scales.shape[0]
     scales = scales.view(torch.uint8)
@@ -33,25 +40,34 @@ def load_grid_tensor(grid_shape, grid_hex, grid_map, device):
     return grid.view(1, 1, *grid_shape)
 def e8m0_to_fp32_half(x):
     x = x.to(torch.int32)
-    bits = torch.where(
-        x < 2,
-        torch.tensor(2097152, dtype=torch.int32, device=x.device) << x,
-        (x - 1) << 23,
-    )
+    bits = torch.where(x < 2, torch.tensor(2097152, dtype=torch.int32,
+        device=x.device) << x, x - 1 << 23)
     return bits.view(torch.float32)
 def ue4m3_to_fp32(x):
     x_int = x.to(torch.int32)
-    exp = (x_int >> 3) & 15
+    exp = x_int >> 3 & 15
     man = (x_int & 7).to(torch.float32)
-    raw_subnormal = man * (2.0 ** -9)
-    raw_normal = (1.0 + man / 8.0) * torch.pow(
-        torch.tensor(2.0, dtype=torch.float32, device=x.device),
-        exp.to(torch.float32) - 7.0,
-    )
+    raw_subnormal = man * 2.0 ** -9
+    raw_normal = (1.0 + man / 8.0) * torch.pow(torch.tensor(2.0, dtype=
+        torch.float32, device=x.device), exp.to(torch.float32) - 7.0)
     raw = torch.where(exp == 0, raw_subnormal, raw_normal)
-    out = torch.where(
-        (x_int == 0) | (x_int == 127),
-        torch.zeros_like(raw),
-        raw * 0.5,
-    )
+    out = torch.where((x_int == 0) | (x_int == 127), torch.zeros_like(raw),
+        raw * 0.5)
     return out
+def build_grid(grid_hex, grid_shape, grid_map):
+    data = bytes.fromhex(grid_hex.decode('ascii'))
+    b = torch.tensor(list(data), dtype=torch.int64).unsqueeze(-1)
+    shifts = torch.tensor([0, 2, 4, 6], dtype=torch.int64)
+    idx = b >> shifts & 3
+    kmap = torch.tensor(list(grid_map) + [0], dtype=torch.float32)
+    return kmap[idx.reshape(-1)].reshape(grid_shape)
+def _build_grid(grid_hex, grid_shape, grid_map):
+    data = bytes.fromhex(grid_hex.decode('ascii'))
+    b = torch.tensor(list(data), dtype=torch.int64).unsqueeze(-1)
+    bits_per_elem = max(1, (len(grid_map) - 1).bit_length())
+    elems_per_byte = 8 // bits_per_elem
+    shifts = torch.arange(elems_per_byte, dtype=torch.int64) * bits_per_elem
+    idx = b >> shifts & (1 << bits_per_elem) - 1
+    pad = (1 << bits_per_elem) - len(grid_map)
+    kmap = torch.tensor(list(grid_map) + [0] * pad, dtype=torch.float32)
+    return kmap[idx.reshape(-1)].reshape(grid_shape)
