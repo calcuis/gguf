@@ -54,7 +54,7 @@ for the demo workflow (picture) above, you could get the test model gguf [here](
 
 #### simulator
 - design your own prompt; or
-- generate a random prompt/descriptor by the [simulator](https://prompt.calcuis.us) (though it might not be applicable for all)
+- generate a random prompt/descriptor by the [simulator](https://prompt.calcu.us) (though it might not be applicable for all)
 
 #### booster (new feature: boost safetensors to fp32)🐷
 - drag safetensors file(s) to diffusion_models folder (./ComfyUI/models/diffusion_models)
