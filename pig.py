@@ -356,7 +356,8 @@ def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
     compat = None
     arch_str = get_field(reader, 'general.architecture', str)
     if arch_str is None:
-        compat = 'sd.cpp'
+        arch_str = arrays['PIG_ARCH_LIST'][0] # accept gguf without any metadata
+        # compat = 'sd.cpp'
     elif arch_str not in arrays['PIG_ARCH_LIST'] and arch_str not in arrays['TXT_ARCH_LIST']:
         raise ValueError(f"Unknown architecture: {arch_str!r}")
     state_dict, qtype_dict = {}, {}
@@ -366,7 +367,8 @@ def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
         shape = get_orig_shape(reader, tensor_name)
         if shape is None:
             shape = torch.Size(tuple(int(v) for v in reversed(tensor.shape)))
-            if compat == 'sd.cpp' and arch_str == 'sdxl':
+            # if compat == 'sd.cpp' and arch_str == 'sdxl':
+            if arch_str == 'sdxl':
                 if any([tensor_name.endswith(x) for x in ('.proj_in.weight',
                     '.proj_out.weight')]):
                     while len(shape) > 2 and shape[-1] == 1:
