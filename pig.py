@@ -255,8 +255,18 @@ class GGMLOps(comfy.ops.manual_cast):
             self.out_features = out_features
             self.weight = None
             self.bias = None
-        def forward_ggml_cast_weights(self, input):
+        def forward_ggml_cast_weights(self, input, input_act=None, act_weight=None,
+            act_eps=0.0, residual=None, residual_scale=None):
+            # ComfyUI >= #16816 passes fused-activation/residual arguments through
+            # Linear.forward; apply them via core's helper on the dequantized weight.
             weight, bias = self.cast_bias_weight(input)
+            linear_input_act_ = getattr(comfy.ops, 'linear_input_act_', None)
+            if linear_input_act_ is not None:
+                return linear_input_act_(input, weight, bias, input_act, act_weight,
+                    act_eps, residual, residual_scale)
+            if input_act is not None or residual is not None:
+                raise NotImplementedError(
+                    'input_act/residual need ComfyUI with comfy.ops.linear_input_act_')
             return torch.nn.functional.linear(input, weight, bias)
     class Conv2d(GGMLLayer, comfy.ops.manual_cast.Conv2d):
         def forward_ggml_cast_weights(self, input):
