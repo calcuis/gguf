@@ -27,7 +27,6 @@ def __init__():
     subparsers.add_parser('r4', help='[r4] tensor info reader')
     subparsers.add_parser('e', help='[e] weight extractor')
     subparsers.add_parser('q', help='[q] tensor quantizor')
-    subparsers.add_parser('q1', help='[q1] tensor quantizor (cpu)')
     subparsers.add_parser('q2', help='[q2] tensor quantizor (upscale)')
     subparsers.add_parser('d', help='[d] divider (safetensors)')
     subparsers.add_parser('d2', help='[d2] divider (gguf)')
@@ -158,8 +157,6 @@ def __init__():
         from gguf_connector import d7
     elif args.subcommand == 'q':
         from gguf_connector import q
-    elif args.subcommand == 'q1':
-        from gguf_connector import q1
     elif args.subcommand == 'q2':
         from gguf_connector import q2
     elif args.subcommand == 'd':

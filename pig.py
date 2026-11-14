@@ -907,13 +907,11 @@ class GGUFRun:
 def quantize_to_fp8(tensor):
     if tensor.dtype != torch.bfloat16:
         raise ValueError('Input tensor must be in BF16 format.')
-    tensor = tensor.to(torch.float16)
-    fp8_max = 240.0
-    fp8_min = -fp8_max
-    clamped_tensor = tensor.clamp(min=fp8_min, max=fp8_max)
-    scale = fp8_max / torch.max(torch.abs(clamped_tensor))
-    quantized_tensor = torch.round(clamped_tensor * scale) / scale
-    return quantized_tensor.to(torch.float8_e4m3fn)
+    fp8_max = torch.finfo(torch.float8_e4m3fn).max
+    scale = torch.max(torch.abs(tensor)) / fp8_max
+    scale = torch.where(scale == 0, torch.ones_like(scale), scale)
+    quantized_tensor = (tensor / scale).to(torch.float8_e4m3fn)
+    return quantized_tensor, scale
 class TENSORCut:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -937,9 +935,15 @@ class TENSORCut:
         quantized_data = {}
         print('Starting quantization process...')
         for key, tensor in loading(data.items(), desc='Quantizing tensors', unit='tensor'):
-            tensor = tensor.to(dtype=torch.bfloat16, device='cuda')
-            quantized_tensor = quantize_to_fp8(tensor)
-            quantized_data[key] = quantized_tensor.cpu()
+            if key.endswith('.weight') and tensor.ndim >= 2:
+                tensor = tensor.to(dtype=torch.bfloat16, device='cuda')
+                quantized_tensor, scale = quantize_to_fp8(tensor)
+                layer = key[:-len('.weight')]
+                quantized_data[key] = quantized_tensor.cpu()
+                quantized_data[layer + '.scale_weight'] = scale.to(torch.bfloat16).reshape(1).cpu()
+            else:
+                quantized_data[key] = tensor
+        quantized_data['scaled_fp8'] = torch.ones(2, dtype=torch.float8_e4m3fn)
         save_file(quantized_data, output_file)
         print(f'Quantized safetensors saved to {output_file}.')
         return {}
