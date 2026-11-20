@@ -392,7 +392,9 @@ def load_gguf_sd(path, handle_prefix='model.diffusion_model.', return_arch=
             torch_tensor = torch_tensor.view(*shape)
         state_dict[sd_key] = GGMLTensor(torch_tensor, tensor_type=tensor.
             tensor_type, tensor_shape=shape)
-        if len(shape) != 2 and tensor.tensor_type == gr.GGMLQuantizationType.BF16:
+        if (len(shape) != 2 and tensor.tensor_type == gr.GGMLQuantizationType.BF16) or (
+            len(shape) <= 1 and is_quantized(state_dict[sd_key])
+        ):
             state_dict[sd_key] = dequantize_tensor(state_dict[sd_key], dtype=torch.float16)
         tensor_type_str = getattr(tensor.tensor_type, 'name', repr(tensor.tensor_type))
         qtype_dict[tensor_type_str] = qtype_dict.get(tensor_type_str, 0) + 1
