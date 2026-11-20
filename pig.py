@@ -1,8 +1,14 @@
+import gc, time
 import comfy.sd
 import comfy.ops
 import comfy.utils
 import comfy.model_patcher
 import comfy.model_management
+import comfy.patcher_extension
+try:
+    import comfy.memory_management
+except ImportError:
+    comfy.memory_management = None
 import torch, numpy, os, json, logging, collections, nodes, folder_paths, inspect
 from safetensors.torch import load_file, save_file
 from typing import Dict, Tuple
@@ -554,17 +560,122 @@ def load_gguf_clip(path):
     else:
         pass
     return sd
+_PRELOAD_DEQUANT_MODES = ['off (lazy_gguf)', 'fp16_fast', 'bf16_fast', 'fp8_e4m3fn_fast']
+_CLEAN_VRAM_MODES = ['off', 'auto (threshold)', 'always_before_sample', 'on_model_load_only']
+_FP8_KEEP_HIGH_PREC = (
+    'input_blocks.0.', 'out.2.', 'proj_in', 'proj_out',
+    'time_embed', 'label_emb', 'x_embedder', 't_embedder',
+    'final_layer', 'llm_adapter.out_proj',
+)
+def _get_memory_usage_stats():
+    dev = (comfy.model_management.get_torch_device()
+        if torch.cuda.is_available() else torch.device('cpu'))
+    vram_total = float(comfy.model_management.get_total_memory(dev))
+    vram_free = float(comfy.model_management.get_free_memory(dev))
+    if torch.cuda.is_available() and getattr(dev, 'type', None) == 'cuda':
+        try:
+            driver_free, driver_total = torch.cuda.mem_get_info(dev)
+            vram_free = min(vram_free, float(driver_free))
+            vram_total = float(driver_total)
+        except Exception:
+            pass
+    vram_used_pct = ((vram_total - vram_free) / vram_total * 100.0) if vram_total > 0 else 0.0
+    cpu_dev = torch.device('cpu')
+    ram_total = float(comfy.model_management.get_total_memory(cpu_dev))
+    ram_free = float(comfy.model_management.get_free_memory(cpu_dev))
+    ram_used_pct = ((ram_total - ram_free) / ram_total * 100.0) if ram_total > 0 else 0.0
+    return vram_used_pct, vram_free / (1024 * 1024), vram_total / (1024 * 1024), ram_used_pct, ram_free / (1024 * 1024)
+def _execute_clean_vram(reason='manual'):
+    t0 = time.time()
+    v_before, vf_before, _, r_before, rf_before = _get_memory_usage_stats()
+    try:
+        mem_mgmt = getattr(comfy, 'memory_management', None)
+        if mem_mgmt is not None and hasattr(mem_mgmt, 'extra_ram_release'):
+            mem_mgmt.extra_ram_release(10**18, free_active=False)
+    except Exception:
+        pass
+    comfy.model_management.unload_all_models()
+    comfy.model_management.cleanup_models_gc()
+    comfy.model_management.cleanup_models()
+    gc.collect()
+    comfy.model_management.soft_empty_cache()
+    v_after, vf_after, _, r_after, rf_after = _get_memory_usage_stats()
+    logging.info(
+        f'[gguf] Clean VRAM ({reason}) in {time.time() - t0:.2f}s | '
+        f'VRAM: {v_before:.1f}% -> {v_after:.1f}% (free {vf_before:.0f} -> {vf_after:.0f} MB) | '
+        f'RAM: {r_before:.1f}% -> {r_after:.1f}% (free {rf_before:.0f} -> {rf_after:.0f} MB)'
+    )
+def _maybe_clean_vram(mode, vram_limit_percent, reason, force_on_load=False):
+    if not mode or mode == 'off':
+        return
+    if force_on_load or mode == 'always_before_sample':
+        _execute_clean_vram(reason=reason)
+        return
+    if mode == 'auto (threshold)':
+        v_pct, _, _, r_pct, _ = _get_memory_usage_stats()
+        loaded_count = len(comfy.model_management.current_loaded_models)
+        if v_pct >= vram_limit_percent or r_pct >= 85.0 or (loaded_count > 1 and v_pct >= (vram_limit_percent - 10)):
+            _execute_clean_vram(reason=f'{reason}, vram={v_pct:.1f}%>={vram_limit_percent}%/models={loaded_count}')
+def _attach_pre_sample_vram_guard(model, clean_mode, vram_limit_percent):
+    if not clean_mode or clean_mode in ('off', 'on_model_load_only'):
+        return
+    def _pre_sample_wrapper(executor, *args, **kwargs):
+        _maybe_clean_vram(clean_mode, vram_limit_percent, reason='pre_sampling', force_on_load=False)
+        return executor(*args, **kwargs)
+    try:
+        model.remove_wrappers_with_key(comfy.patcher_extension.WrappersMP.PREPARE_SAMPLING, 'gguf_auto_clean_vram')
+    except Exception:
+        pass
+    model.add_wrapper_with_key(comfy.patcher_extension.WrappersMP.PREPARE_SAMPLING, 'gguf_auto_clean_vram', _pre_sample_wrapper)
+def pre_dequantize_sd(sd, mode):
+    """Dequantize GGUF tensors once onto GPU/CPU into native CPU torch.Tensors."""
+    deq_device = (comfy.model_management.get_torch_device()
+        if torch.cuda.is_available() else torch.device('cpu'))
+    if mode == 'fp16_fast':
+        base_dtype = torch.float16
+    elif mode == 'bf16_fast':
+        base_dtype = torch.bfloat16
+    elif mode == 'fp8_e4m3fn_fast':
+        base_dtype = torch.float16
+    else:
+        raise ValueError(f'Unsupported preload_dequant mode: {mode!r}')
+    new_sd = {}
+    with torch.no_grad():
+        for k in list(sd.keys()):
+            v = sd.pop(k)
+            oshape = getattr(v, 'tensor_shape', v.shape)
+            qtype = getattr(v, 'tensor_type', None)
+            if is_quantized(v):
+                raw_gpu = v.as_subclass(torch.Tensor).to(device=deq_device)
+                tmp_ggml = GGMLTensor(raw_gpu, tensor_type=qtype, tensor_shape=oshape)
+                deq = dequantize_tensor(tmp_ggml, dtype=base_dtype, dequant_dtype=base_dtype)
+                del raw_gpu, tmp_ggml
+            else:
+                deq = v.as_subclass(torch.Tensor).to(device=deq_device, dtype=base_dtype)
+            deq = deq.as_subclass(torch.Tensor)
+            if (mode == 'fp8_e4m3fn_fast' and deq.ndim >= 2 and deq.numel() > 1024
+                and not any(p in k for p in _FP8_KEEP_HIGH_PREC)):
+                deq = deq.clamp(-240.0, 240.0).to(torch.float8_e4m3fn)
+            new_sd[k] = deq.to(device='cpu').contiguous()
+            del v, deq
+    comfy.model_management.soft_empty_cache()
+    return new_sd
 class LoaderGGUF:
     @classmethod
     def INPUT_TYPES(s):
         gguf_names = [x for x in folder_paths.get_filename_list('model_gguf')]
-        return {'required': {'gguf_name': (gguf_names,)}}
+        return {'required': {'gguf_name': (gguf_names,)}, 'optional': {
+            'preload_dequant': (_PRELOAD_DEQUANT_MODES, {'default': 'off (lazy_gguf)'}),
+            'auto_clean_vram': (_CLEAN_VRAM_MODES, {'default': 'off'}),
+            'vram_limit_percent': ('INT', {'default': 75, 'min': 30, 'max': 98, 'step': 5})}}
     RETURN_TYPES = 'MODEL',
     FUNCTION = 'load_model'
     CATEGORY = 'gguf'
     TITLE = 'GGUF Loader'
     def load_model(self, gguf_name, dequant_dtype=None, patch_dtype=None,
-        patch_on_device=None):
+        patch_on_device=None, preload_dequant='off (lazy_gguf)',
+        auto_clean_vram='off', vram_limit_percent=75):
+        _maybe_clean_vram(auto_clean_vram, vram_limit_percent, reason='before_model_load', force_on_load=True)
         ops = GGMLOps()
         if dequant_dtype in ('default', None):
             ops.Linear.dequant_dtype = None
@@ -590,6 +701,18 @@ class LoaderGGUF:
         valid_params = inspect.signature(comfy.sd.load_diffusion_model_state_dict).parameters
         if "metadata" in valid_params:
             kwargs["metadata"] = extra.get("metadata", {})
+        if preload_dequant and preload_dequant != 'off (lazy_gguf)':
+            sd = pre_dequantize_sd(sd, preload_dequant)
+            model = comfy.sd.load_diffusion_model_state_dict(sd, **kwargs)
+            if model is None:
+                logging.error('ERROR UNSUPPORTED MODEL {}'.format(model_path))
+                raise RuntimeError('ERROR: Could not detect model type of: {}'.
+                    format(model_path))
+            del sd, extra
+            gc.collect()
+            comfy.model_management.soft_empty_cache()
+            _attach_pre_sample_vram_guard(model, auto_clean_vram, vram_limit_percent)
+            return model,
         model = comfy.sd.load_diffusion_model_state_dict(sd, model_options=
             {"custom_operations": ops}, **kwargs,)
         if model is None:
@@ -598,6 +721,7 @@ class LoaderGGUF:
                 format(model_path))
         model = GGUFModelPatcher.clone(model)
         model.patch_on_device = patch_on_device
+        _attach_pre_sample_vram_guard(model, auto_clean_vram, vram_limit_percent)
         return model,
 class LoaderGGUFAdvanced(LoaderGGUF):
     @classmethod
@@ -607,7 +731,10 @@ class LoaderGGUFAdvanced(LoaderGGUF):
             (['default', 'target', 'float32', 'float16', 'bfloat16'], {
             'default': 'default'}), 'patch_dtype': (['default', 'target',
             'float32', 'float16', 'bfloat16'], {'default': 'default'}),
-            'patch_on_device': ('BOOLEAN', {'default': False})}}
+            'patch_on_device': ('BOOLEAN', {'default': False})}, 'optional': {
+            'preload_dequant': (_PRELOAD_DEQUANT_MODES, {'default': 'off (lazy_gguf)'}),
+            'auto_clean_vram': (_CLEAN_VRAM_MODES, {'default': 'off'}),
+            'vram_limit_percent': ('INT', {'default': 75, 'min': 30, 'max': 98, 'step': 5})}}
     TITLE = 'GGUF Loader (Advanced)'
 def get_clip_type(type):
     clip_type = getattr(comfy.sd.CLIPType, type.upper(), comfy.sd.CLIPType.STABLE_DIFFUSION)
